@@ -1,0 +1,443 @@
+from typing import List, Optional, Literal, Tuple
+import ast
+import json
+import requests
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+
+# =========================
+# Config
+# =========================
+OLLAMA_URL = "http://localhost:11434/api/chat"
+OLLAMA_MODEL = "llama3.1:8b"
+
+WEB_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+# =========================
+# App
+# =========================
+app = FastAPI(title="AI Resume Tailor API", version="0.2")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=WEB_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# =========================
+# Schemas
+# =========================
+class ParseRequest(BaseModel):
+    resume_text: str = Field(min_length=50)
+    jd_text: str = Field(min_length=50)
+    tolerance: int = Field(ge=0, le=100)
+
+class ResumeExperience(BaseModel):
+    company: Optional[str] = None
+    role: Optional[str] = None
+    dates: Optional[str] = None
+    bullets: List[str] = Field(default_factory=list)
+
+class ResumeJSON(BaseModel):
+    summary: Optional[str] = None
+    skills: List[str] = Field(default_factory=list)
+    experience: List[ResumeExperience] = Field(default_factory=list)
+    education: List[str] = Field(default_factory=list)
+
+class JdJSON(BaseModel):
+    title: Optional[str] = None
+    must_have: List[str] = Field(default_factory=list)
+    nice_to_have: List[str] = Field(default_factory=list)
+    responsibilities: List[str] = Field(default_factory=list)
+    keywords: List[str] = Field(default_factory=list)
+
+class ParseResponse(BaseModel):
+    resume_json: ResumeJSON
+    jd_json: JdJSON
+
+class PlanItem(BaseModel):
+    jd_requirement: str
+    evidence: List[str] = Field(default_factory=list)  # short snippets from resume
+    keywords_to_add: List[str] = Field(default_factory=list)  # MUST already exist in resume text
+    action: Literal["keep", "rewrite", "expand", "add_skill_only"] = "rewrite"
+
+class TailorPlan(BaseModel):
+    tolerance: int
+    mode: Literal["conservative", "balanced", "creative"]
+    allowed: List[str] = Field(default_factory=list)
+    disallowed: List[str] = Field(default_factory=list)
+    missing_must_haves: List[str] = Field(default_factory=list)
+    items: List[PlanItem] = Field(default_factory=list)
+    global_keywords: List[str] = Field(default_factory=list)  # MUST already exist in resume text
+
+class TailorRequest(BaseModel):
+    resume_text: str = Field(min_length=50)
+    jd_text: str = Field(min_length=50)
+    tolerance: int = Field(ge=0, le=100)
+    plan: Optional[TailorPlan] = None
+
+class TailorResponse(BaseModel):
+    tailored_resume: str
+
+# =========================
+# Helpers
+# =========================
+def tolerance_profile(t: int) -> Literal["conservative", "balanced", "creative"]:
+    if t < 30:
+        return "conservative"
+    if t < 70:
+        return "balanced"
+    return "creative"
+
+def policy_for_tolerance(t: int) -> Tuple[Literal["conservative", "balanced", "creative"], List[str], List[str]]:
+    mode = tolerance_profile(t)
+
+    if mode == "conservative":
+        allowed = [
+            "reorder_sections",
+            "rewrite_summary_light",
+            "rewrite_bullets_light",
+            "add_keywords_only_if_already_implied",
+        ]
+        disallowed = [
+            "add_new_roles",
+            "add_new_projects",
+            "add_metrics_not_in_resume",
+            "claim_tools_not_in_resume",
+        ]
+    elif mode == "balanced":
+        allowed = [
+            "reorder_sections",
+            "rewrite_summary",
+            "rewrite_bullets",
+            "insert_keywords_into_existing_bullets",
+            "add_skills_section_keywords_if_reasonable",
+        ]
+        disallowed = [
+            "add_new_roles",
+            "add_new_employers",
+            "add_new_degrees",
+            "add_new_certifications",
+            "invent_metrics",
+            "invent_new_technologies",
+        ]
+    else:  # creative
+        allowed = [
+            "rewrite_summary_strong",
+            "rewrite_bullets_strong",
+            "expand_bullets_with_reasonable_details",
+            "add_skills_keywords_section",
+        ]
+        disallowed = [
+            "add_new_roles",
+            "add_new_employers",
+            "add_new_degrees",
+            "add_new_certifications",
+            "invent_metrics_or_specific_numbers",
+            "invent_new_technologies",
+        ]
+
+    return mode, allowed, disallowed
+
+def extract_json_strict(text: str) -> dict:
+    """
+    Ollama/Llama sometimes wraps JSON with extra text.
+    We try:
+      1) json.loads
+      2) parse substring from first '{' to last '}'
+      3) ast.literal_eval as fallback (handles single quotes) then verify dict
+    """
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError("Model did not return a JSON object.")
+
+    candidate = text[start : end + 1]
+
+    try:
+        return json.loads(candidate)
+    except Exception:
+        parsed = ast.literal_eval(candidate)
+        if not isinstance(parsed, dict):
+            raise ValueError("Model did not return a JSON object.")
+        return parsed
+
+def contains_education(text: str) -> bool:
+    return "education" in text.lower()
+
+def normalize_text(s: str) -> str:
+    return (s or "").lower()
+
+def resume_contains_term(resume_text: str, term: str) -> bool:
+    return term.lower() in resume_text.lower()
+
+# =========================
+# LLM Client (Ollama)
+# =========================
+def ollama_chat(system: str, user: str, temperature: float = 0.0) -> str:
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "options": {"temperature": temperature},
+        "stream": False,
+    }
+
+    r = requests.post(OLLAMA_URL, json=payload, timeout=180)
+    if r.status_code != 200:
+        raise HTTPException(status_code=500, detail=f"Ollama error: {r.text}")
+
+    data = r.json()
+    return data["message"]["content"]
+
+# =========================
+# Core logic (internal)
+# =========================
+def build_plan_internal(req: ParseRequest) -> TailorPlan:
+    mode, allowed, disallowed = policy_for_tolerance(req.tolerance)
+
+    system = """You are an expert resume strategist.
+
+CRITICAL RULES (MUST FOLLOW):
+- The resume is a factual document. Do NOT invent or assume experience.
+- Only use evidence that appears verbatim or very clearly implied in the RESUME TEXT.
+- NEVER suggest technologies, programming languages, tools, certifications, or degrees that are NOT present in the RESUME TEXT.
+- If a JD requirement mentions skills not present in the resume, mark them as missing.
+- Output VALID JSON ONLY. No explanations, no markdown.
+
+Definitions:
+- Evidence = short exact phrases or bullets copied or lightly paraphrased from the resume.
+- keywords_to_add = terms that ALREADY APPEAR somewhere in the resume text (case-insensitive match).
+"""
+
+    # IMPORTANT: f-string + literal JSON braces must be doubled: {{ }}
+    user = f"""MODE: {mode}
+
+TASK:
+Create a resume tailoring plan that maps Job Description requirements to factual evidence in the resume.
+
+RESUME TEXT:
+{req.resume_text}
+
+JOB DESCRIPTION TEXT:
+{req.jd_text}
+
+IMPORTANT CONSTRAINTS:
+- If a JD requirement references skills or technologies NOT present in the resume, list them ONLY in missing_must_haves.
+- Do NOT attempt to "help" by assuming senior-level knowledge.
+- Do NOT suggest legacy or adjacent technologies unless they explicitly appear in the resume.
+- Evidence MUST come directly from the resume text.
+- keywords_to_add MUST be words/phrases that appear in the RESUME TEXT.
+
+RETURN JSON WITH EXACT SHAPE:
+{{
+  "tolerance": {req.tolerance},
+  "mode": "{mode}",
+  "allowed": {allowed},
+  "disallowed": {disallowed},
+  "missing_must_haves": [],
+  "items": [
+    {{
+      "jd_requirement": "",
+      "evidence": [],
+      "keywords_to_add": [],
+      "action": "keep"
+    }}
+  ],
+  "global_keywords": []
+}}
+
+GUIDELINES:
+- Use "keep" if the resume already clearly satisfies the requirement.
+- Use "rewrite" if wording can be improved without adding new facts.
+- Use "expand" ONLY if expanding details already present in resume.
+- Use "add_skill_only" ONLY if the skill exists elsewhere in resume but not in a bullet (and it appears in the resume).
+- Limit items to 6–10 total.
+"""
+
+    content = ollama_chat(system, user, temperature=0.0)
+    parsed = extract_json_strict(content)
+
+    plan = TailorPlan(**parsed)
+
+    # Extra safety: enforce "keywords_to_add must appear in resume"
+    resume_low = req.resume_text.lower()
+    for item in plan.items:
+        item.keywords_to_add = [k for k in item.keywords_to_add if k and k.lower() in resume_low]
+    plan.global_keywords = [k for k in plan.global_keywords if k and k.lower() in resume_low]
+
+    return plan
+
+def parse_internal(req: ParseRequest) -> ParseResponse:
+    mode = tolerance_profile(req.tolerance)
+
+    system = (
+        "You extract structured data from text.\n"
+        "Rules:\n"
+        "- Do NOT add new facts. Only extract what's present.\n"
+        "- If missing, use null or empty arrays.\n"
+        "- Return JSON ONLY. No markdown. No commentary.\n"
+    )
+
+    user = f"""MODE: {mode}
+TASK: Extract two JSON objects: resume_json and jd_json.
+
+RESUME TEXT:
+{req.resume_text}
+
+JOB DESCRIPTION TEXT:
+{req.jd_text}
+
+Return exactly this JSON shape:
+{{
+  "resume_json": {{
+    "summary": null,
+    "skills": [],
+    "experience": [
+      {{"company": null, "role": null, "dates": null, "bullets": []}}
+    ],
+    "education": []
+  }},
+  "jd_json": {{
+    "title": null,
+    "must_have": [],
+    "nice_to_have": [],
+    "responsibilities": [],
+    "keywords": []
+  }}
+}}
+"""
+
+    content = ollama_chat(system, user, temperature=0.0)
+    parsed = extract_json_strict(content)
+
+    resume_json = ResumeJSON(**(parsed.get("resume_json") or {}))
+    jd_json = JdJSON(**(parsed.get("jd_json") or {}))
+    return ParseResponse(resume_json=resume_json, jd_json=jd_json)
+
+def tailor_internal(req: TailorRequest) -> TailorResponse:
+    mode, allowed, disallowed = policy_for_tolerance(req.tolerance)
+
+    plan_obj = req.plan
+    if plan_obj is None:
+        plan_obj = build_plan_internal(ParseRequest(
+            resume_text=req.resume_text,
+            jd_text=req.jd_text,
+            tolerance=req.tolerance,
+        ))
+
+    system = """You rewrite resumes for humans and ATS systems.
+
+THIS IS A FACTUAL DOCUMENT — TREAT IT LIKE A LEGAL RECORD.
+
+HARD RULES (MUST FOLLOW):
+- Do NOT add new companies, roles, degrees, certifications, tools, or programming languages.
+- Do NOT add technologies that do not already appear in the base resume.
+- Do NOT invent metrics, numbers, percentages, or performance claims.
+- Preserve all factual sections present in the original resume (especially EDUCATION and SKILLS).
+- Do NOT write bullets that are just keyword lists.
+
+STYLE RULES:
+- Each bullet must describe an action + object (+ optional purpose/result).
+- Each bullet may include at most 3–5 technologies (no mega-lists).
+- Bullets should be concise and readable by a human recruiter.
+
+OUTPUT:
+- Plain text resume only.
+- No JSON, no explanations, no commentary.
+"""
+
+    plan_json = plan_obj.model_dump_json()
+
+    user = f"""MODE: {mode}
+
+ALLOWED ACTIONS:
+{allowed}
+
+DISALLOWED ACTIONS:
+{disallowed}
+
+BASE RESUME:
+{req.resume_text}
+
+JOB DESCRIPTION:
+{req.jd_text}
+
+TAILORING PLAN (JSON):
+{plan_json}
+
+TASK:
+Rewrite the resume to better match the job description while remaining 100% truthful.
+
+MANDATORY CONSTRAINTS:
+- Keep the same employers, job titles, dates, degrees, and certifications.
+- Keep EDUCATION section if present in the base resume.
+- Keep SKILLS section; you may reorder or lightly rephrase but not expand with new skills.
+- Rewrite bullets to align with JD language using ONLY evidence in the resume.
+- Do NOT collapse bullets into keyword-heavy sentences or technology-dump bullets.
+
+FORMATTING:
+- Use clear section headers (SUMMARY, EXPERIENCE, EDUCATION, SKILLS).
+- Keep 1–2 pages worth of content.
+- Prefer clarity over keyword density.
+
+Output ONLY the tailored resume text.
+"""
+
+    temp = 0.2 if mode == "creative" else 0.0
+    content = ollama_chat(system, user, temperature=temp).strip()
+
+    # Simple guard: if base has EDUCATION, output must have it
+    if contains_education(req.resume_text) and not contains_education(content):
+        raise HTTPException(status_code=400, detail="Tailored output removed EDUCATION section. Regenerate.")
+
+    # Guard: block classic fake .NET language stuffing unless present in base resume
+    banned_unless_present = ["Visual Basic", "VB.NET", "C++/CLI", "J#", "JScript.NET"]
+    base_low = req.resume_text.lower()
+    out_low = content.lower()
+    for term in banned_unless_present:
+        if term.lower() in out_low and term.lower() not in base_low:
+            raise HTTPException(status_code=400, detail=f"Tailored output contained unsupported term: {term}")
+
+    return TailorResponse(tailored_resume=content)
+
+# =========================
+# Routes (thin)
+# =========================
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+@app.post("/parse", response_model=ParseResponse)
+def parse(req: ParseRequest):
+    try:
+        return parse_internal(req)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/plan", response_model=TailorPlan)
+def plan(req: ParseRequest):
+    try:
+        return build_plan_internal(req)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/tailor", response_model=TailorResponse)
+def tailor(req: TailorRequest):
+    try:
+        return tailor_internal(req)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
