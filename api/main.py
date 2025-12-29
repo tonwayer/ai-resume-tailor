@@ -4,6 +4,9 @@ import json
 import requests
 import re
 from io import BytesIO
+import zipfile
+
+
 from fastapi.responses import StreamingResponse
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import LETTER
@@ -100,6 +103,13 @@ class ExtractJdResponse(BaseModel):
 class PdfRequest(BaseModel):
     resume_text: str = Field(min_length=50)
     filename: Optional[str] = "tailored_resume.pdf"
+
+class BatchZipRequest(BaseModel):
+    base_resume_text: str = Field(min_length=50)
+    job_urls: List[str] = Field(min_items=1, max_items=10)
+    tolerance: int = Field(ge=0, le=100)
+    format: Literal["pdf", "pdf+txt"] = "pdf"
+
 
 # =========================
 # Helpers
@@ -463,6 +473,26 @@ def render_resume_pdf(resume_text: str) -> BytesIO:
     buf.seek(0)
     return buf
 
+def slugify(s: str) -> str:
+    s = s.strip().lower()
+    s = re.sub(r"https?://", "", s)
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s[:60] or "job"
+
+def fetch_jd_text(url: str) -> str:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+    }
+    r = requests.get(url, headers=headers, timeout=25)
+    if r.status_code != 200:
+        raise ValueError(f"fetch failed status={r.status_code}")
+    jd_text = extract_visible_text_from_html(r.text)
+    if len(jd_text) < 200:
+        raise ValueError("extracted text too short")
+    return jd_text
+
+
 # =========================
 # LLM Client (Ollama)
 # =========================
@@ -757,3 +787,48 @@ def resume_pdf(req: PdfRequest):
         "Content-Disposition": f'attachment; filename="{filename}"'
     }
     return StreamingResponse(pdf_buf, media_type="application/pdf", headers=headers)
+
+@app.post("/batch_zip")
+def batch_zip(req: BatchZipRequest):
+    # Safety: cap links
+    urls = req.job_urls[:10]
+
+    zip_buf = BytesIO()
+    errors = []
+
+    with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for idx, url in enumerate(urls, start=1):
+            try:
+                jd_text = fetch_jd_text(url)
+
+                # Generate tailored resume (no plan needed)
+                out = tailor_internal(TailorRequest(
+                    resume_text=req.base_resume_text,
+                    jd_text=jd_text,
+                    tolerance=req.tolerance,
+                    plan=None,
+                ))
+                resume_txt = out.tailored_resume.strip()
+
+                base_name = f"{idx:02d}_{slugify(url)}"
+
+                if req.format in ("pdf", "pdf+txt"):
+                    pdf = render_resume_pdf(resume_txt).getvalue()
+                    zf.writestr(f"{base_name}.pdf", pdf)
+
+                if req.format == "pdf+txt":
+                    zf.writestr(f"{base_name}.txt", resume_txt)
+
+            except Exception as e:
+                errors.append(f"{idx:02d} {url} -> {str(e)}")
+
+        # Always include errors file (even if empty)
+        zf.writestr("errors.txt", "\n".join(errors) if errors else "OK")
+
+        # (optional) include the input resume for traceability
+        zf.writestr("base_resume.txt", req.base_resume_text)
+
+    zip_buf.seek(0)
+    headers = {"Content-Disposition": 'attachment; filename="tailored_resumes.zip"'}
+    return StreamingResponse(zip_buf, media_type="application/zip", headers=headers)
+

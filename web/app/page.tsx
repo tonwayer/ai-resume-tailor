@@ -18,6 +18,18 @@ async function copyToClipboard(text: string) {
   await navigator.clipboard.writeText(text);
 }
 
+function downloadBlob(filename: string, blob: Blob) {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+
 export default function Home() {
   const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
 
@@ -32,6 +44,8 @@ export default function Home() {
   const [jobUrl, setJobUrl] = useState("");
   const [fetchingJd, setFetchingJd] = useState(false);
 
+  const [jobLinksText, setJobLinksText] = useState("");
+  const [batchLoading, setBatchLoading] = useState(false);
 
   const mode = useMemo(() => {
     if (tolerance < 30) return "Conservative";
@@ -125,6 +139,53 @@ export default function Home() {
     a.click();
     a.remove();
     window.URL.revokeObjectURL(url);
+  }
+  async function onGenerateBatchZip() {
+    setError(null);
+
+    const links = jobLinksText
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (links.length === 0) {
+      setError("Paste at least 1 job link.");
+      return;
+    }
+    if (links.length > 10) {
+      setError("Max 10 links for MVP. Please paste 10 or fewer.");
+      return;
+    }
+    if (resumeText.trim().length < 80) {
+      setError("Paste your base resume first.");
+      return;
+    }
+
+    setBatchLoading(true);
+    try {
+      const r = await fetch(`${apiBase}/batch_zip`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          base_resume_text: resumeText,
+          job_urls: links,
+          tolerance,
+          format: "pdf+txt",
+        }),
+      });
+
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data?.detail || "Batch generation failed");
+      }
+
+      const blob = await r.blob();
+      downloadBlob("tailored_resumes.zip", blob);
+    } catch (e: any) {
+      setError(e?.message || "Unknown error");
+    } finally {
+      setBatchLoading(false);
+    }
   }
 
   return (
@@ -264,6 +325,45 @@ export default function Home() {
               >
                 Download PDF
               </button>
+            </div>
+          </div>
+          {/* Batch Generate */}
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900">Batch Generate (ZIP)</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  Paste up to 10 job links (one per line). Downloads a ZIP with PDF + TXT for each.
+                </p>
+              </div>
+
+              <button
+                onClick={onGenerateBatchZip}
+                disabled={batchLoading || resumeText.trim().length < 80}
+                className="rounded-xl border border-slate-300 bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-700"
+              >
+                {batchLoading ? "Generating ZIP..." : "Generate ZIP (PDF+TXT)"}
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-slate-900">Job Links</div>
+                <div className="text-xs text-slate-500">
+                  {jobLinksText.split("\n").map(s => s.trim()).filter(Boolean).length}/10
+                </div>
+              </div>
+
+              <textarea
+                value={jobLinksText}
+                onChange={(e) => setJobLinksText(e.target.value)}
+                placeholder={`https://company.com/jobs/123\nhttps://boards.greenhouse.io/...`}
+                className="mt-3 h-40 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-900 outline-none focus:ring-2 focus:ring-slate-400"
+              />
+
+              <div className="mt-2 text-xs text-slate-500">
+                Output files will include <span className="font-mono">errors.txt</span> for any links that failed to fetch/parse.
+              </div>
             </div>
           </div>
 
