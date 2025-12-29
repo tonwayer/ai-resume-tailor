@@ -102,6 +102,31 @@ export default function Home() {
     }
   }
 
+  async function onDownloadPdf() {
+    if (!tailored) return;
+
+    const r = await fetch(`${apiBase}/resume_pdf`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resume_text: tailored, filename: "tailored_resume.pdf" }),
+    });
+
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      throw new Error(data?.detail || "PDF generation failed");
+    }
+
+    const blob = await r.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "tailored_resume.pdf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  }
+
   return (
     <main className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-6xl px-4 py-10">
@@ -231,6 +256,13 @@ export default function Home() {
                 className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Download .txt
+              </button>
+              <button
+                onClick={() => onDownloadPdf().catch(e => setError(e.message))}
+                disabled={!tailored}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Download PDF
               </button>
             </div>
           </div>
