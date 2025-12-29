@@ -2,7 +2,10 @@ from typing import List, Optional, Literal, Tuple
 import ast
 import json
 import requests
+import re
 
+
+from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -82,6 +85,12 @@ class TailorRequest(BaseModel):
 
 class TailorResponse(BaseModel):
     tailored_resume: str
+
+class ExtractJdRequest(BaseModel):
+    url: str = Field(min_length=10)
+
+class ExtractJdResponse(BaseModel):
+    jd_text: str
 
 # =========================
 # Helpers
@@ -179,6 +188,38 @@ def normalize_text(s: str) -> str:
 
 def resume_contains_term(resume_text: str, term: str) -> bool:
     return term.lower() in resume_text.lower()
+
+def clean_text(s: str) -> str:
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
+
+def extract_visible_text_from_html(html: str) -> str:
+    soup = BeautifulSoup(html, "lxml")
+
+    # remove junk
+    for tag in soup(["script", "style", "noscript", "svg", "nav", "footer", "header", "form"]):
+        tag.decompose()
+
+    # prefer main/article content if present
+    main = soup.find("main") or soup.find("article") or soup.body
+    text = main.get_text(separator="\n") if main else soup.get_text(separator="\n")
+
+    # cleanup lines
+    lines = [clean_text(line) for line in text.split("\n")]
+    lines = [line for line in lines if len(line) >= 3]
+
+    # de-duplicate repeated nav items
+    dedup = []
+    seen = set()
+    for line in lines:
+        key = line.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        dedup.append(line)
+
+    return "\n".join(dedup)
+
 
 # =========================
 # LLM Client (Ollama)
@@ -441,3 +482,26 @@ def tailor(req: TailorRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/extract_jd", response_model=ExtractJdResponse)
+def extract_jd(req: ExtractJdRequest):
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+        }
+        r = requests.get(req.url, headers=headers, timeout=20)
+        if r.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"Failed to fetch URL (status={r.status_code})")
+
+        jd_text = extract_visible_text_from_html(r.text)
+
+        # simple guard
+        if len(jd_text) < 200:
+            raise HTTPException(status_code=400, detail="Extracted text too short. Try pasting JD directly.")
+
+        return ExtractJdResponse(jd_text=jd_text)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

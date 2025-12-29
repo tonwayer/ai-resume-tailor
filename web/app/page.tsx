@@ -29,6 +29,10 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [tailored, setTailored] = useState("");
 
+  const [jobUrl, setJobUrl] = useState("");
+  const [fetchingJd, setFetchingJd] = useState(false);
+
+
   const mode = useMemo(() => {
     if (tolerance < 30) return "Conservative";
     if (tolerance < 70) return "Balanced";
@@ -73,6 +77,29 @@ export default function Home() {
   function onDownload() {
     if (!tailored) return;
     downloadText("tailored_resume.txt", tailored);
+  }
+
+  async function onFetchJd() {
+    if (!jobUrl.trim()) return;
+    setFetchingJd(true);
+    setError(null);
+
+    try {
+      const r = await fetch(`${apiBase}/extract_jd`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: jobUrl.trim() }),
+      });
+
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.detail || "Failed to extract JD");
+
+      setJdText(data.jd_text || "");
+    } catch (e: any) {
+      setError(e?.message || "Unknown error");
+    } finally {
+      setFetchingJd(false);
+    }
   }
 
   return (
@@ -146,6 +173,21 @@ export default function Home() {
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-bold text-slate-900">Job Description</h2>
                 <span className="text-xs text-slate-500">{jdText.trim().length} chars</span>
+              </div>
+              <div className="mb-3 flex gap-2">
+                <input
+                  value={jobUrl}
+                  onChange={(e) => setJobUrl(e.target.value)}
+                  placeholder="Paste job link (optional)"
+                  className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-400"
+                />
+                <button
+                  onClick={onFetchJd}
+                  disabled={!jobUrl.trim() || fetchingJd}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {fetchingJd ? "Fetching..." : "Fetch JD"}
+                </button>
               </div>
               <textarea
                 value={jdText}
