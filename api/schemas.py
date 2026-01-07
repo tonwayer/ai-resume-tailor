@@ -54,6 +54,8 @@ class TailorRequest(BaseModel):
     jd_text: str = Field(min_length=50)
     tolerance: int = Field(ge=0, le=100)
     plan: Optional[TailorPlan] = None
+    provider: Literal["ollama", "deepseek"] = "ollama"
+    model: Optional[str] = None
 
 class TailorResponse(BaseModel):
     tailored_resume: str
@@ -73,3 +75,5 @@ class BatchZipRequest(BaseModel):
     job_urls: List[str] = Field(min_items=1, max_items=10)
     tolerance: int = Field(ge=0, le=100)
     format: Literal["pdf", "pdf+txt"] = "pdf"
+    provider: Literal["ollama", "deepseek"] = "ollama"
+    model: Optional[str]

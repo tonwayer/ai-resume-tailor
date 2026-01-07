@@ -19,6 +19,7 @@ def build_zip(
     job_urls: List[str],
     tolerance: int,
     fmt: Literal["pdf", "pdf+txt"],
+    provider: Literal["ollama", "deepseek"],
 ) -> BytesIO:
     zip_buf = BytesIO()
     errors = []
@@ -27,7 +28,7 @@ def build_zip(
         for idx, url in enumerate(job_urls[:10], start=1):
             try:
                 jd_text = fetch_jd_text(url)
-                resume_txt = tailor_text(base_resume_text, jd_text, tolerance).strip()
+                resume_txt = tailor_text(base_resume_text, jd_text, tolerance, provider).strip()
 
                 base_name = f"{idx:02d}_{slugify(url)}"
                 pdf = render_resume_pdf(resume_txt).getvalue()

@@ -33,6 +33,8 @@ function downloadBlob(filename: string, blob: Blob) {
 export default function Home() {
   const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
 
+  const [provider, setProvider] = useState<"ollama" | "deepseek">("ollama");
+
   const [resumeText, setResumeText] = useState("");
   const [jdText, setJdText] = useState("");
   const [tolerance, setTolerance] = useState(40);
@@ -68,6 +70,7 @@ export default function Home() {
           resume_text: resumeText,
           jd_text: jdText,
           tolerance,
+          provider,
           plan: null,
         }),
       });
@@ -170,6 +173,7 @@ export default function Home() {
           base_resume_text: resumeText,
           job_urls: links,
           tolerance,
+          provider,
           format: "pdf+txt",
         }),
       });
@@ -223,8 +227,15 @@ export default function Home() {
               <div className="text-sm font-bold text-slate-900">{tolerance}</div>
               <div className="text-sm text-slate-600">({mode})</div>
             </div>
+            <select
+              value={provider}
+              onChange={(e) => setProvider(e.target.value as any)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+            >
+              <option value="ollama">Local (Ollama)</option>
+              <option value="deepseek">DeepSeek (Online)</option>
+            </select>
 
-            <div className="flex-1" />
 
             <button
               onClick={onGenerate}
