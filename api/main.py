@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routes import router as api_router
 
-WEB_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+WEB_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000", "http://192.168.128.153:3000"]
 
 app = FastAPI(title="AI Resume Tailor API", version="0.2")
 

@@ -57,6 +57,9 @@ class TailorRequest(BaseModel):
     provider: Literal["ollama", "deepseek"] = "ollama"
     model: Optional[str] = None
 
+    prompt_mode: Literal["detailed", "custom"] = "default"
+    custom_prompt: Optional[str] = None
+
 class TailorResponse(BaseModel):
     tailored_resume: str
 
@@ -76,4 +79,7 @@ class BatchZipRequest(BaseModel):
     tolerance: int = Field(ge=0, le=100)
     format: Literal["pdf", "pdf+txt"] = "pdf"
     provider: Literal["ollama", "deepseek"] = "ollama"
-    model: Optional[str]
+    model: Optional[str] = None
+
+    prompt_mode: Literal["detailed", "custom"] = "default"
+    custom_prompt: Optional[str] = None

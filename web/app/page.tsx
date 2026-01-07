@@ -29,6 +29,9 @@ function downloadBlob(filename: string, blob: Blob) {
   window.URL.revokeObjectURL(url);
 }
 
+const DEFAULT_CUSTOM_TEMPLATE = `Rewrite the resume to match the JD. Preserve employers/dates/education. No new metrics. No JD copy-paste.
+If needs, you can edit job titles slightly to better match the JD.
+Output ONLY the resume text.`;
 
 export default function Home() {
   const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
@@ -49,7 +52,12 @@ export default function Home() {
   const [jobLinksText, setJobLinksText] = useState("");
   const [batchLoading, setBatchLoading] = useState(false);
 
+  const [promptMode, setPromptMode] = useState<"default" | "custom">("default");
+  const [customPrompt, setCustomPrompt] = useState<string>(DEFAULT_CUSTOM_TEMPLATE);
+
+
   const mode = useMemo(() => {
+    if (tolerance === 100) return "Evil";
     if (tolerance < 30) return "Conservative";
     if (tolerance < 70) return "Balanced";
     return "Creative";
@@ -205,10 +213,6 @@ export default function Home() {
               Paste your base resume + job description → generate a truthful tailored resume (FastAPI + Ollama).
             </p>
           </div>
-
-          <div className="text-xs text-slate-500">
-            API: <span className="rounded bg-white px-2 py-1 font-mono text-slate-700 shadow-sm">{apiBase}</span>
-          </div>
         </div>
 
         {/* Controls */}
@@ -217,7 +221,9 @@ export default function Home() {
             <div className="flex flex-wrap items-center gap-3">
               <div className="text-sm font-semibold text-slate-900">Tolerance</div>
               <input
+                id="tolerance"
                 type="range"
+                disabled={promptMode==="custom"}
                 min={0}
                 max={100}
                 value={tolerance}
@@ -227,6 +233,7 @@ export default function Home() {
               <div className="text-sm font-bold text-slate-900">{tolerance}</div>
               <div className="text-sm text-slate-600">({mode})</div>
             </div>
+            <div className="flex-1" />
             <select
               value={provider}
               onChange={(e) => setProvider(e.target.value as any)}
@@ -235,8 +242,6 @@ export default function Home() {
               <option value="ollama">Local (Ollama)</option>
               <option value="deepseek">DeepSeek (Online)</option>
             </select>
-
-
             <button
               onClick={onGenerate}
               disabled={!canRun}
@@ -249,6 +254,33 @@ export default function Home() {
             >
               {loading ? "Generating..." : "Generate Tailored Resume"}
             </button>
+          </div>
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900">Prompt</h2>
+                <p className="mt-1 text-xs text-slate-500">Use default prompts or customize them.</p>
+              </div>
+
+              <select
+                value={promptMode}
+                onChange={(e) => setPromptMode(e.target.value as any)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              >
+                <option value="default">Default</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+
+            {promptMode === "custom" && (
+              <div className="mt-4">
+                <textarea
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  className="mt-2 h-56 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-900 outline-none focus:ring-2 focus:ring-slate-400"
+                />
+              </div>
+            )}
           </div>
 
           {/* Inputs */}
@@ -378,7 +410,7 @@ export default function Home() {
             </div>
           </div>
 
-          <pre className="mt-4 max-h-[520px] overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-900">
+          <pre className="mt-4 max-h-130 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-900">
             {tailored || "No output yet. Paste resume + JD and click Generate."}
           </pre>
         </div>

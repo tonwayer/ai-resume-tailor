@@ -91,5 +91,5 @@ def llm_chat(provider: str,
         model: str | None = None
     ) -> str:
     if provider == "deepseek":
-        return deepseek_chat(system, user, temperature=temperature, model=model)
+        return deepseek_chat(system, user, temperature=temperature)
     return ollama_chat(system, user, temperature=temperature, model=model)
