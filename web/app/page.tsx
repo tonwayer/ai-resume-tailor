@@ -36,7 +36,7 @@ Output ONLY the resume text.`;
 export default function Home() {
   const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
 
-  const [provider, setProvider] = useState<"ollama" | "deepseek">("ollama");
+  const [provider, setProvider] = useState<"ollama" | "deepseek">("deepseek");
 
   const [resumeText, setResumeText] = useState("");
   const [jdText, setJdText] = useState("");
@@ -371,7 +371,11 @@ export default function Home() {
             </div>
           </div>
           {/* Batch Generate */}
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+          <pre className="mt-4 max-h-130 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-900">
+            {tailored || "No output yet. Paste resume + JD and click Generate."}
+          </pre>
+                    <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-sm font-bold text-slate-900">Batch Generate (ZIP)</h2>
@@ -410,9 +414,6 @@ export default function Home() {
             </div>
           </div>
 
-          <pre className="mt-4 max-h-130 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-900">
-            {tailored || "No output yet. Paste resume + JD and click Generate."}
-          </pre>
         </div>
       </div>
     </main>
