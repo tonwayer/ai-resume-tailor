@@ -212,6 +212,9 @@ export default function Home() {
             <p className="mt-1 text-sm text-slate-600">
               Paste your base resume + job description → generate a truthful tailored resume (FastAPI + Ollama).
             </p>
+            <p className="mt-1 text-sm text-slate-600">
+              <a href="https://github.com/tonwayer/ai-resume-tailor/issues" className="underline">If you find issues, please write here.</a>.
+            </p>
           </div>
         </div>
 
@@ -223,7 +226,7 @@ export default function Home() {
               <input
                 id="tolerance"
                 type="range"
-                disabled={promptMode==="custom"}
+                disabled={promptMode === "custom"}
                 min={0}
                 max={100}
                 value={tolerance}
@@ -375,7 +378,7 @@ export default function Home() {
           <pre className="mt-4 max-h-130 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-900">
             {tailored || "No output yet. Paste resume + JD and click Generate."}
           </pre>
-                    <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-sm font-bold text-slate-900">Batch Generate (ZIP)</h2>
