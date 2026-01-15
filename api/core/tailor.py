@@ -24,7 +24,7 @@ def tailor_text(
     
     system = DEFAULT_SYSTEM_PROMPT
     if prompt_mode == "custom" and custom_prompt:
-        user = render_custom_prompt(vars)
+        user = render_custom_prompt({**vars, CUSTOM_PROMPT: custom_prompt})
     else:
         user = build_default_user_prompt(mode, resume_text, jd_text)
     if mode == "evil":
