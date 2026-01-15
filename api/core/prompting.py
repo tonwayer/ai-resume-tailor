@@ -1,6 +1,6 @@
 from typing import Dict
 
-ALLOWED_KEYS = {"MODE", "RESUME", "JD", "ALLOWED", "DISALLOWED"}
+ALLOWED_KEYS = {"MODE", "RESUME", "JD", "ALLOWED", "DISALLOWED", "CUSTOM_PROMPT"}
 
 DEFAULT_SYSTEM_PROMPT = """You rewrite resumes for humans and ATS systems.
 
@@ -68,8 +68,15 @@ JOB DESCRIPTION:
 {JD}
 
 TASK:
-Rewrite the resume to match the JD. Preserve employers/titles/dates/education. No metrics. No JD copy-paste.
-Output ONLY the resume text."""
+{CUSTOM_PROMPT}
+
+OUTPUT REQUIREMENTS:
+- Preserve these facts exactly: employers, dates, degree(s), university name(s).
+- Do NOT include any extra headers like "Tailored Resume" or "Here is...".
+- NO "Here is the rewritten resume:" please!
+- Do NOT copy JD sentences; use your own wording.
+- Keep the resume realistic and consistent.
+"""
 
 def render_custom_prompt(vars: Dict[str, str]) -> str:
     # Only allow a fixed set of keys
