@@ -46,6 +46,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [tailored, setTailored] = useState("");
 
+  const [fullName, setFullName] = useState("")
   const [jobUrl, setJobUrl] = useState("");
   const [fetchingJd, setFetchingJd] = useState(false);
 
@@ -133,7 +134,7 @@ export default function Home() {
     const r = await fetch(`${apiBase}/resume_pdf`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ resume_text: tailored, filename: "tailored_resume.pdf" }),
+      body: JSON.stringify({ resume_text: tailored, filename: (fullName || "tailored_resume") + ".pdf" }),
     });
 
     if (!r.ok) {
@@ -145,7 +146,7 @@ export default function Home() {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "tailored_resume.pdf";
+    a.download = (fullName || "tailored_resume") + ".pdf";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -292,6 +293,14 @@ export default function Home() {
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-bold text-slate-900">Base Resume</h2>
                 <span className="text-xs text-slate-500">{resumeText.trim().length} chars</span>
+              </div>
+              <div className="mb-3 flex gap-2">
+                <input
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Full Name (used as the PDF file name)"
+                  className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-400"
+                />
               </div>
               <textarea
                 value={resumeText}
