@@ -57,7 +57,7 @@ class TailorRequest(BaseModel):
     provider: Literal["ollama", "deepseek"] = "ollama"
     model: Optional[str] = None
 
-    prompt_mode: Literal["detailed", "custom"] = "default"
+    prompt_mode: Literal["default", "custom"] = "default"
     custom_prompt: Optional[str] = None
 
 class TailorResponse(BaseModel):
@@ -81,5 +81,5 @@ class BatchZipRequest(BaseModel):
     provider: Literal["ollama", "deepseek"] = "ollama"
     model: Optional[str] = None
 
-    prompt_mode: Literal["detailed", "custom"] = "default"
+    prompt_mode: Literal["default", "custom"] = "default"
     custom_prompt: Optional[str] = None
