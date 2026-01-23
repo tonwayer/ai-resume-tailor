@@ -71,11 +71,25 @@ TASK:
 Rewrite the resume to match the JD. Preserve employers/titles/dates/education. No metrics. No JD copy-paste.
 Output ONLY the resume text."""
 
-def render_custom_prompt(vars: Dict[str, str]) -> str:
+def render_custom_prompt(template: str | None, vars: Dict[str, str]) -> str:
     # Only allow a fixed set of keys
     safe_vars = {k: v for k, v in vars.items() if k in ALLOWED_KEYS}
+    base_template = template or DEFAULT_CUSTOM_TEMPLATE
 
-    return DEFAULT_CUSTOM_TEMPLATE.format(**safe_vars)
+    if "{RESUME}" in base_template or "{JD}" in base_template or "{MODE}" in base_template:
+        try:
+            return base_template.format(**safe_vars)
+        except Exception:
+            return base_template
+
+    return f"""{base_template}
+
+BASE RESUME:
+{safe_vars.get("RESUME", "")}
+
+JOB DESCRIPTION:
+{safe_vars.get("JD", "")}
+"""
 
 def build_default_user_prompt(
         mode: str,

@@ -24,7 +24,15 @@ def health():
 @router.post("/tailor", response_model=TailorResponse)
 def tailor(req: TailorRequest):
     try:
-        out = tailor_text(req.resume_text, req.jd_text, req.tolerance, req.provider)
+        out = tailor_text(
+            req.resume_text,
+            req.jd_text,
+            req.tolerance,
+            req.provider,
+            model=req.model,
+            prompt_mode=req.prompt_mode,
+            custom_prompt=req.custom_prompt,
+        )
         return TailorResponse(tailored_resume=out)
     except HTTPException:
         raise
@@ -56,7 +64,10 @@ def batch_zip(req: BatchZipRequest):
             job_urls=req.job_urls,
             tolerance=req.tolerance,
             fmt=req.format,
-            provider=req.provider
+            provider=req.provider,
+            model=req.model,
+            prompt_mode=req.prompt_mode,
+            custom_prompt=req.custom_prompt,
         )
         headers = {"Content-Disposition": 'attachment; filename="tailored_resumes.zip"'}
         return StreamingResponse(zip_buf, media_type="application/zip", headers=headers)

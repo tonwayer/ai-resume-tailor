@@ -79,6 +79,8 @@ export default function Home() {
           jd_text: jdText,
           tolerance,
           provider,
+          prompt_mode: promptMode,
+          custom_prompt: promptMode === "custom" ? customPrompt : null,
           plan: null,
         }),
       });
@@ -183,6 +185,8 @@ export default function Home() {
           tolerance,
           provider,
           format: "pdf+txt",
+          prompt_mode: promptMode,
+          custom_prompt: promptMode === "custom" ? customPrompt : null,
         }),
       });
 

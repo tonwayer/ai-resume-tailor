@@ -20,11 +20,13 @@ def tailor_text(
         "MODE": mode,
         "RESUME": resume_text,
         "JD": jd_text,
+        "ALLOWED": "\n".join(allowed),
+        "DISALLOWED": "\n".join(disallowed),
     }
     
     system = DEFAULT_SYSTEM_PROMPT
-    if prompt_mode == "custom" and custom_prompt:
-        user = render_custom_prompt(vars)
+    if prompt_mode == "custom":
+        user = render_custom_prompt(custom_prompt, vars)
     else:
         user = build_default_user_prompt(mode, resume_text, jd_text)
     if mode == "evil":
@@ -42,4 +44,3 @@ def tailor_text(
         raise HTTPException(status_code=400, detail="Tailored output removed EDUCATION section. Regenerate.")
 
     return content
-
